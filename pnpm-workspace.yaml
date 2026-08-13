@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm v10+ blocks dependency build/postinstall scripts by default
+# (security-by-default). esbuild's postinstall installs its platform binary
+# and is required by Vite — approve it here.
+# Map form is the current key for pnpm >= 10.26 (replaces the deprecated
+# onlyBuiltDependencies). `playwright: false` explicitly blocks its
+# auto-download: browsers are installed on demand via `pnpm exec playwright
+# install --with-deps` (see Justfile `test-e2e` and CI).
+# If a future install reports other ignored builds (e.g. @swc/core,
+# @tailwindcss/oxide), run `pnpm approve-builds` and review before enabling.
+allowBuilds:
+  esbuild: true
+  playwright: false

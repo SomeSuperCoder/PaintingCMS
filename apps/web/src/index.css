@@ -1,0 +1,200 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    /* ui-design §1.3: system stack guarantees Cyrillic on every Telegram platform;
+       Geist Variable (self-hosted) is the preferred face where available. */
+    --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'Helvetica Neue', Arial, sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    /* ui-design §1.1 extension roles (success/warning/info/disabled/overlay/bottom-bar) */
+    --color-success: var(--success);
+    --color-success-bg: var(--success-bg);
+    --color-warning: var(--warning);
+    --color-warning-bg: var(--warning-bg);
+    --color-danger-bg: var(--danger-bg);
+    --color-info: var(--info);
+    --color-disabled-bg: var(--disabled-bg);
+    --color-disabled-fg: var(--disabled-fg);
+    --color-overlay: var(--overlay);
+    --color-bottom-bar: var(--bottom-bar);
+    --color-border-subtle: var(--border-subtle);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    /* ui-design §1.1 — «Стена мастерской»: тёплая бумага + чернила + жжёная сиена.
+       Contrast pairs verified in docs/ui-design.md (body text 15.4:1, AA/AAA). */
+    --background: #F7F2EA;
+    --foreground: #211A12;
+    --card: #FFFFFF;
+    --card-foreground: #211A12;
+    --popover: #FFFFFF;
+    --popover-foreground: #211A12;
+    --primary: #A63D1F;
+    --primary-foreground: #FFFFFF;
+    --secondary: #E9E1D3;
+    --secondary-foreground: #211A12;
+    --muted: #E9E1D3;
+    --muted-foreground: #5F574A;
+    --accent: #F1E6D6;
+    --accent-foreground: #211A12;
+    --destructive: #B3261E;
+    --destructive-foreground: #FFFFFF;
+    --border: #6B6253;
+    --input: #6B6253;
+    --ring: #A63D1F;
+    --border-subtle: #D8CFC0;
+    --success: #1E6B3C;
+    --success-bg: #E3F1E7;
+    --warning: #7A4E00;
+    --warning-bg: #FDF1DC;
+    --danger-bg: #FBE9E7;
+    --info: #1D5F5D;
+    --disabled-bg: #E9E1D3;
+    --disabled-fg: #4F483C;
+    --overlay: rgba(33, 26, 18, 0.55);
+    --bottom-bar: #FFFFFF;
+    --chart-1: #A63D1F;
+    --chart-2: #1E6B3C;
+    --chart-3: #7A4E00;
+    --chart-4: #1D5F5D;
+    --chart-5: #B3261E;
+    --radius: 0.75rem;
+    --sidebar: #FFFFFF;
+    --sidebar-foreground: #211A12;
+    --sidebar-primary: #A63D1F;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #F1E6D6;
+    --sidebar-accent-foreground: #211A12;
+    --sidebar-border: #D8CFC0;
+    --sidebar-ring: #A63D1F;
+}
+
+.dark {
+    /* ui-design §1.2 — тёмная тема (Telegram dark). Акцент #D65A2B с ЧЕРНИЛЬНЫМ
+       текстом (#1C1812): белый на сиене = 3.9:1 < 4.5 — осознанное отличие. */
+    --background: #1C1812;
+    --foreground: #F1E9DA;
+    --card: #262119;
+    --card-foreground: #F1E9DA;
+    --popover: #262119;
+    --popover-foreground: #F1E9DA;
+    --primary: #D65A2B;
+    --primary-foreground: #1C1812;
+    --secondary: #262119;
+    --secondary-foreground: #F1E9DA;
+    --muted: #262119;
+    --muted-foreground: #B8AC99;
+    --accent: #262119;
+    --accent-foreground: #F1E9DA;
+    --destructive: #C93B2E;
+    --destructive-foreground: #FFFFFF;
+    --border: #C9BFAE;
+    --input: #C9BFAE;
+    --ring: #D65A2B;
+    --border-subtle: #C9BFAE;
+    --success: #9ED8B0;
+    --success-bg: #262119;
+    --warning: #FFD28A;
+    --warning-bg: #262119;
+    --danger-bg: #262119;
+    --info: #9ED8B0;
+    --disabled-bg: #262119;
+    --disabled-fg: #8A8070;
+    --overlay: rgba(0, 0, 0, 0.6);
+    --bottom-bar: #262119;
+    --chart-1: #D65A2B;
+    --chart-2: #9ED8B0;
+    --chart-3: #FFD28A;
+    --chart-4: #F1E9DA;
+    --chart-5: #C93B2E;
+    --sidebar: #262119;
+    --sidebar-foreground: #F1E9DA;
+    --sidebar-primary: #D65A2B;
+    --sidebar-primary-foreground: #1C1812;
+    --sidebar-accent: #262119;
+    --sidebar-accent-foreground: #F1E9DA;
+    --sidebar-border: #C9BFAE;
+    --sidebar-ring: #D65A2B;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  /* ui-design §1.3 / ru-accessibility-ux: base font ≥18px, rem-based scale,
+     fluid type without horizontal overflow at 200% zoom. */
+  html {
+    @apply font-sans;
+    font-size: 18px;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    }
+  body {
+    @apply bg-background text-foreground;
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-wrap: anywhere;
+    }
+  /* a11y contract §4.4 / ui-design §4.1: focus is ALWAYS visible for keyboard
+     users — 3px ring, 2px offset, ≥3:1 contrast (--ring). Never removed on
+     mouse use (only :focus-visible, but not suppressed). */
+  :focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* a11y contract §4.5: reduced motion disables ALL animation/transitions. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

@@ -1,0 +1,30 @@
+# ── dependencies ──────────────────────────────────────────
+node_modules/
+
+# ── environment & secrets (never commit) ─────────────────
+.env
+.env.*
+!.env.example
+
+# ── build output ──────────────────────────────────────────
+dist/
+build/
+*.tsbuildinfo
+
+# ── local data & storage ─────────────────────────────────
+data/
+storage/
+backups/
+
+# ── test artifacts ────────────────────────────────────────
+playwright-report/
+test-results/
+blob-report/
+coverage/
+
+# ── tooling & editor ─────────────────────────────────────
+.codegraph/
+*.log
+.DS_Store
+.idea/
+.vscode/

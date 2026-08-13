@@ -1,0 +1,66 @@
+# PaintingCMS — podman-compose topology (design D9)
+# db (postgres:16) → api (NestJS, migrations on start) ← caddy (auto-TLS :80/:443)
+# Local dev uses `just db-up` (bare-metal `just dev`); compose is the
+# production-like stack / deploy target.
+#
+# Usage: podman-compose up -d --build   (or: just compose-up)
+services:
+  db:
+    image: docker.io/library/postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-paintingcms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paintingcms-dev}
+      POSTGRES_DB: ${POSTGRES_DB:-paintingcms}
+    ports:
+      # Bound to loopback for local `just dev`; NOT exposed to the world.
+      # Remove entirely if the host has no bare-metal dev workflow.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-paintingcms} -d ${POSTGRES_DB:-paintingcms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # In-container connection (db = compose service name)
+      DATABASE_URL: postgresql://${POSTGRES_USER:-paintingcms}:${POSTGRES_PASSWORD:-paintingcms-dev}@db:5432/${POSTGRES_DB:-paintingcms}
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      WEBAPP_URL: ${WEBAPP_URL:-}
+      INIT_DATA_MAX_AGE_SECONDS: ${INIT_DATA_MAX_AGE_SECONDS:-600}
+      PORT: 3000
+      NODE_ENV: production
+    volumes:
+      - photos:/app/storage/photos
+
+  caddy:
+    image: docker.io/library/caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    # auto-TLS for the real domain; localhost is served with an internal CA
+    command: caddy reverse-proxy --from ${CADDY_DOMAIN:-localhost} --to api:3000
+
+volumes:
+  pgdata:
+  photos:
+  caddy_data:
+  caddy_config:
