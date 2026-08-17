@@ -1,4 +1,4 @@
-import { plainToInstance, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
@@ -8,6 +8,7 @@ import {
   Matches,
   Max,
   Min,
+  ValidateIf,
   validateSync,
   ValidationError,
 } from 'class-validator';
@@ -21,13 +22,11 @@ import {
  *
  * Why these fields:
  * - DATABASE_URL is REQUIRED — the API has no boot path without a database.
- * - BOT_TOKEN is REQUIRED for auth: it is the HMAC secret for every initData
- *   validation (design D2). An empty token would make validation fail closed
- *   on EVERY request (or worse, silently accept nothing) — fail fast at boot
- *   instead. This makes the grammY bot (design D7) implicitly present: the
- *   bot module consumes the same token and MUST NOT block CRUD if the bot
- *   itself fails; if a truly bot-less deploy is ever wanted, a separate
- *   TELEGRAM_BOT_ENABLED switch should be introduced, not a blank token.
+ * - DEV_MODE when true disables HMAC verification on initData and makes
+ *   BOT_TOKEN optional — intended for local development and E2E testing only.
+ *   NEVER set DEV_MODE=true in production.
+ * - BOT_TOKEN is REQUIRED for auth in production: it is the HMAC secret for
+ *   every initData validation (design D2). Optional when DEV_MODE=true.
  * - WEBAPP_URL defaults to '' because CORS falls back to reflecting origins
  *   in local dev only; production sets it and CORS becomes strict.
  * - CADDY_DOMAIN is optional: it is consumed only by the Caddy container
@@ -50,6 +49,12 @@ export class EnvironmentVariables {
   })
   DATABASE_URL!: string;
 
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  DEV_MODE: boolean = false;
+
+  /** Required in production. Optional when DEV_MODE=true (HMAC bypass). */
+  @ValidateIf((obj) => !obj.DEV_MODE)
   @IsString()
   @IsNotEmpty()
   BOT_TOKEN!: string;

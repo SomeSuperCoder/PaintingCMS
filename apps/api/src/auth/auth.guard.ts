@@ -23,6 +23,7 @@ import {
   ExecutionContext,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -50,11 +51,21 @@ export type RequestWithAuth = Request & { user: AuthUser };
 
 @Injectable()
 export class AuthGuard implements CanActivate {
+  private readonly logger = new Logger(AuthGuard.name);
+  private readonly devMode: boolean;
+
   constructor(
     private readonly config: ConfigService,
     private readonly reflector: Reflector,
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
-  ) {}
+  ) {
+    this.devMode = this.config.get<boolean>('DEV_MODE', false);
+    if (this.devMode) {
+      this.logger.warn(
+        '[DEV_MODE] HMAC verification disabled — do NOT use in production',
+      );
+    }
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     if (this.isPublic(context)) {
@@ -65,7 +76,9 @@ export class AuthGuard implements CanActivate {
 
     // Express lowercases header names; the contract constant is the SSOT.
     const raw = request.headers[AUTH_HEADER.toLowerCase()];
-    const user = this.authenticate(raw);
+    const user = this.devMode
+      ? this.authenticateDevMode(raw)
+      : this.authenticate(raw);
 
     await this.upsertUser(user);
 
@@ -93,6 +106,44 @@ export class AuthGuard implements CanActivate {
       // Non-validation failures (e.g. programming errors) are NOT masked as
       // 401 — let the global error handling surface them as 500.
       throw error;
+    }
+  }
+
+  /**
+   * DEV_MODE bypass: skip HMAC, parse the `user` field from the header directly.
+   * The frontend mock sends `user={"id":"...","username":"...","firstName":"..."}`.
+   */
+  private authenticateDevMode(raw: unknown): TelegramUser {
+    if (typeof raw !== 'string' || raw.length === 0) {
+      throw new UnauthorizedException({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'DEV_MODE requires X-Telegram-Init-Data header with mock user data',
+        },
+      });
+    }
+    try {
+      const params = new URLSearchParams(raw);
+      const userJson = params.get('user');
+      if (!userJson) {
+        throw new Error('missing user field');
+      }
+      const parsed = JSON.parse(userJson) as Record<string, unknown>;
+      if (parsed.id == null) {
+        throw new Error('missing or invalid id field');
+      }
+      return {
+        id: String(parsed.id),
+        username: typeof parsed.username === 'string' ? parsed.username : undefined,
+        firstName: typeof parsed.first_name === 'string' ? parsed.first_name : '',
+      };
+    } catch {
+      throw new UnauthorizedException({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'DEV_MODE requires X-Telegram-Init-Data header with mock user data',
+        },
+      });
     }
   }
 
