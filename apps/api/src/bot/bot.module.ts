@@ -42,10 +42,16 @@ function describe(error: unknown): string {
     {
       provide: BOT,
       inject: [ConfigService],
-      // BOT_TOKEN is REQUIRED by env validation (env.validation.ts) — the
-      // factory can fail fast here; boot continues regardless (see below).
-      useFactory: (config: ConfigService): Bot =>
-        new Bot(config.getOrThrow<string>('BOT_TOKEN')),
+      useFactory: (config: ConfigService): Bot => {
+        if (config.get<boolean>('DEV_MODE', false)) {
+          // DEV_MODE: skip real Telegram bot — use a dummy token so the provider
+          // is still resolvable but grammy never connects to Telegram.
+          // onApplicationBootstrap returns early in non-production, so this
+          // dummy bot is never used for webhooks or polling.
+          return new Bot('dev-mode-dummy-token');
+        }
+        return new Bot(config.getOrThrow<string>('BOT_TOKEN'));
+      },
     },
     TelegramBotService,
     TransferNotifierService,
