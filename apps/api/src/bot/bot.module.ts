@@ -4,7 +4,7 @@
  * Creates the Bot instance (BOT token) from the validated BOT_TOKEN env and
  * wires the RU handlers via TelegramBotService. In production it owns the
  * webhook seam:
- *   - the route is mounted at the RAW Express layer (${WEBAPP_URL}/bot/<secret>)
+ *   - the route is mounted at the RAW Express layer (${PUBLIC_URL}/bot/<secret>)
  *     via HttpAdapterHost — deliberately OUTSIDE Nest's guarded router, so the
  *     global ThrottlerGuard/AuthGuard never see Telegram updates and no
  *     @Public() is needed, and OUTSIDE the /api/v1 global prefix (raw Express
@@ -108,9 +108,9 @@ export class BotModule implements OnApplicationBootstrap {
   /** Tell Telegram where to deliver updates — called only AFTER the route answers. */
   private async registerWebhook(): Promise<void> {
     const secret = deriveWebhookSecret(this.bot.token);
-    const base = this.config.get<string>('WEBAPP_URL', '').replace(/\/+$/, '');
+    const base = this.config.get<string>('PUBLIC_URL', '').replace(/\/+$/, '');
     if (!base) {
-      throw new Error('WEBAPP_URL is required when NODE_ENV=production (webhook mode)');
+      throw new Error('PUBLIC_URL is required when NODE_ENV=production (webhook mode)');
     }
     const webhookUrl = `${base}${BOT_WEBHOOK_PATH_PREFIX}/${secret}`;
     await this.bot.api.setWebhook(webhookUrl, { secret_token: secret });

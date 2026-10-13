@@ -67,8 +67,9 @@ One NestJS module. Dev: long-polling. Prod: webhook with secret path token. Hand
 
 ### D9 — Serving, deploy, CI
 - **podman-compose.yml:** `db` = postgres:16 (named volume `pgdata`, `pg_isready` healthcheck, `service_healthy` dependency); `api` = multi-stage build (node:22-alpine), runs drizzle migrations on start, serves built SPA + photos volume; `caddy` = auto TLS 80/443 reverse proxy to `api:3000`.
-- **Justfile:** install, dev (Vite proxy → NestJS), db-up/down/reset, migrate, db-generate, lint, typecheck, test, test-e2e, build, compose-up, deploy, logs, backup, health.
-- **GitHub Actions `ci.yml`:** job `verify` (pnpm/action-setup, `--frozen-lockfile`, lint, typecheck, test, build) → job `e2e` (Playwright `--with-deps`, postgres:16 service, mocked TMA, artifact upload) → job `deploy` (main only, SSH deploy key, git pull + `podman-compose up -d --build` + `/health` smoke). Secrets: SSH_HOST/USER/KEY, BOT_TOKEN, DB creds, WEBAPP_URL.
+- **Justfile (minimal):** install, dev (compose db + migrate + shared build + Vite/NestJS), up/down, logs, migrate, backup, deploy, db-reset.
+- **GitHub Actions `ci.yml`:** job `verify` (pnpm/action-setup, `--frozen-lockfile`, lint, typecheck, test, build) → job `e2e` (Playwright `--with-deps`, postgres:16 service, mocked TMA, artifact upload). Deploys are manual on the server (`just deploy`) — CI never touches production.
+- **Config SSOT:** a single root `.env` feeds bare-metal dev, `just`, and the podman containers (compose interpolates it and streams it into `api`). One `PUBLIC_URL` drives Caddy's domain, CORS, the Telegram webhook, and the Mini App button; `DATABASE_URL` is derived per context and never set by hand.
 - Git: `git init` at scaffold time; commits at feature boundaries only after the tier's tests pass.
 
 ### D10 — Testing architecture
@@ -93,4 +94,4 @@ Greenfield: no existing data. Steps: `git init` → scaffold monorepo + deps →
 
 ## Open Questions
 
-None that would change specs, approach, or task breakdown. Operational prerequisites at deploy time (to be provided by the Director when deploying to production): a real bot token via BotFather, the public WEBAPP_URL, and DNS pointing at the host for Caddy auto-TLS. Dev/E2E use a test bot token; the same real algorithm is exercised.
+None that would change specs, approach, or task breakdown. Operational prerequisites at deploy time (to be provided by the Director when deploying to production): a real bot token via BotFather, the public `PUBLIC_URL` (`https://<domain>`), and DNS pointing at the host for Caddy auto-TLS. Dev/E2E use a test bot token; the same real algorithm is exercised.

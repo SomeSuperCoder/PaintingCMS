@@ -1,92 +1,77 @@
-# PaintingCMS — task runner (see README.md)
-# Loads .env so recipes see POSTGRES_*, DATABASE_URL, BOT_TOKEN, ...
+# PaintingCMS — task runner
+# -----------------------------------------------------------------------------
+# `.env` (repo root) is the single source of truth; `set dotenv-load` loads it
+# so recipes see POSTGRES_*, PUBLIC_URL, BOT_TOKEN, ... Run `just --list`.
 set dotenv-load := true
 set shell := ["bash", "-uc"]
 
 default:
     @just --list
 
-# ── Install ─────────────────────────────────────────────────
+# ── Essentials ──────────────────────────────────────────────
 
 # Install all workspace dependencies (pnpm only — never npm/npx)
 install:
     pnpm install
 
-# ── Local dev (bare-metal) ──────────────────────────────────
-
-# Vite on :5173 proxies /api → NestJS on :3000 (requires `just db-up` first)
-# Depends on build-shared — dev runs `pnpm -r --parallel` so the compiled
-# @painting/shared dist must exist before Vite/Nest resolve it.
-dev: build-shared
-    pnpm dev
-
-# ── Database (podman-compose) ───────────────────────────────
-
-# Start the postgres:16 container (healthchecked, localhost:5432)
-db-up:
+# Local dev: postgres + migrations + shared build, then Vite (:5173) + NestJS (:3000)
+dev:
+    @test -f .env || { echo "Missing .env — run: cp .env.example .env"; exit 1; }
     podman-compose up -d db
-
-# Stop the db container (data preserved in the pgdata volume)
-db-down:
-    podman-compose down
-
-# Wipe the pgdata volume and recreate the db (DESTROYS dev data)
-db-reset:
-    podman-compose down -v
-    podman-compose up -d db
-
-# Apply Drizzle migrations to the dev DB (@painting/api db:migrate)
-migrate:
-    pnpm --filter @painting/api db:migrate
-
-# Generate a Drizzle migration from the schema (@painting/api db:generate)
-db-generate:
-    pnpm --filter @painting/api db:generate
-
-# ── Quality ─────────────────────────────────────────────────
-
-lint:
-    pnpm lint
-
-typecheck:
-    pnpm typecheck
-
-test:
-    pnpm test
-
-# Playwright E2E (apps/web; API + test DB are wired by the Test Engineer's
-# Playwright config — same path CI uses)
-test-e2e:
-    pnpm --filter @painting/web test:e2e
-
-# Build the @painting/shared package (compiled dist consumed by api + web)
-build-shared:
+    @echo "Waiting for postgres ..."
+    @for i in $(seq 1 30); do podman-compose exec -T db pg_isready -U ${POSTGRES_USER:?set POSTGRES_USER in .env} >/dev/null 2>&1 && break; sleep 1; done
     pnpm --filter @painting/shared build
+    DATABASE_URL=postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@localhost:5432/${POSTGRES_DB:?set POSTGRES_DB in .env} pnpm --filter @painting/api db:migrate
+    DATABASE_URL=postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@localhost:5432/${POSTGRES_DB:?set POSTGRES_DB in .env} pnpm dev
 
-build:
-    pnpm build
-
-# ── Containers (production-like stack) ──────────────────────
-
-# Build + start db + api + caddy via podman-compose
-compose-up:
+# Build + start the production-like stack (db + api + caddy) in the background
+up:
     podman-compose up -d --build
 
-# Prod deploy: pull, rebuild, restart, health smoke via Caddy :80
-deploy:
-    git pull --ff-only
-    podman-compose up -d --build
-    curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://localhost/health
+# Stop the stack (named volumes / data are preserved)
+down:
+    podman-compose down
 
 # Tail container logs
 logs:
     podman-compose logs -f --tail=100
 
-# pg_dump the db to backups/<timestamp>.sql (gitignored)
+# Apply Drizzle migrations to the local dev DB
+migrate:
+    DATABASE_URL=postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@localhost:5432/${POSTGRES_DB:?set POSTGRES_DB in .env} pnpm --filter @painting/api db:migrate
+
+# pg_dump the DB into backups/<timestamp>.sql (gitignored)
 backup:
     mkdir -p backups
-    podman-compose exec -T db pg_dump -U ${POSTGRES_USER:-paintingcms} ${POSTGRES_DB:-paintingcms} > backups/$(date +%Y%m%d-%H%M%S).sql
+    podman-compose exec -T db pg_dump -U ${POSTGRES_USER:?set POSTGRES_USER in .env} ${POSTGRES_DB:?set POSTGRES_DB in .env} > backups/$(date +%Y%m%d-%H%M%S).sql
 
-# Health smoke (via Caddy on :80 → api /health)
-health:
-    curl -fsS http://localhost/health
+# ── Deploy (run on the server) ──────────────────────────────
+
+# Deploy: pull, rebuild, restart, then wait until the api container is healthy
+deploy:
+    @test -f .env || { echo "Missing .env — run: cp .env.example .env and fill PUBLIC_URL, POSTGRES_PASSWORD, BOT_TOKEN"; exit 1; }
+    @test -n "${PUBLIC_URL:-}" || { echo "PUBLIC_URL is empty in .env"; exit 1; }
+    @test -n "${POSTGRES_PASSWORD:-}" || { echo "POSTGRES_PASSWORD is empty in .env"; exit 1; }
+    @test -n "${BOT_TOKEN:-}" || { echo "BOT_TOKEN is empty in .env"; exit 1; }
+    git pull --ff-only
+    podman-compose up -d --build
+    @echo "Waiting for api to become healthy ..."
+    @cid=$(podman-compose ps -q api); \
+     for i in $(seq 1 40); do \
+       podman healthcheck run "$cid" >/dev/null 2>&1 && { echo "api is healthy."; exit 0; }; \
+       sleep 3; \
+     done; \
+     echo "api did not become healthy in time. Last logs:"; \
+     podman-compose logs --tail=80 api; \
+     echo; \
+     echo "If this is a Postgres password error: restore the old POSTGRES_PASSWORD in .env,"; \
+     echo "or run 'just backup' and then 'just db-reset' (DESTROYS data)."; \
+     exit 1
+
+# ── Recovery ────────────────────────────────────────────────
+
+# DESTRUCTIVE: wipe the db volume and recreate it (use after changing POSTGRES_PASSWORD)
+db-reset:
+    @read -p "This DESTROYS all database data. Type 'yes' to continue: " ans; [ "${ans:-}" = "yes" ] || { echo "aborted"; exit 1; }
+    podman-compose down -v
+    podman-compose up -d db

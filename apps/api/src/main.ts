@@ -18,12 +18,14 @@ async function bootstrap(): Promise<void> {
 
   const config = app.get(ConfigService);
 
-  // TMA origin from env (WEBAPP_URL). When unset (local dev) reflect any
-  // origin — the Vite dev proxy keeps the browser same-origin anyway; in
-  // production WEBAPP_URL is set and CORS is strict.
-  const webappUrl = config.get<string>('WEBAPP_URL', '');
+  // TMA origin from env (PUBLIC_URL). In production it is required (env
+  // validation fails fast otherwise) and CORS is strict; in local dev it may
+  // be unset, so reflect any origin — the Vite dev proxy keeps the browser
+  // same-origin anyway.
+  const isProduction = config.get<string>('NODE_ENV', 'development') === 'production';
+  const publicUrl = config.get<string>('PUBLIC_URL', '');
   app.enableCors({
-    origin: webappUrl || true,
+    origin: isProduction && publicUrl ? publicUrl : true,
   });
 
   // Strict body validation everywhere (design D6, class-validator):

@@ -1,25 +1,26 @@
 # PaintingCMS — podman-compose topology (design D9)
 # db (postgres:16) → api (NestJS, migrations on start) ← caddy (auto-TLS :80/:443)
-# Local dev uses `just db-up` (bare-metal `just dev`); compose is the
-# production-like stack / deploy target.
 #
-# Usage: podman-compose up -d --build   (or: just compose-up)
+# `.env` (repo root) is THE single source of truth. podman-compose reads it
+# automatically for `${...}` interpolation below, and the `api` service also
+# loads it wholesale via `env_file`. Never hardcode credentials here.
+#
+# Usage: just up   (build + start), just deploy (pull + up + health check)
 services:
   db:
     image: docker.io/library/postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-paintingcms}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paintingcms-dev}
-      POSTGRES_DB: ${POSTGRES_DB:-paintingcms}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
     ports:
-      # Bound to loopback for local `just dev`; NOT exposed to the world.
-      # Remove entirely if the host has no bare-metal dev workflow.
+      # Loopback only — for the bare-metal `just dev` workflow. Never public.
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-paintingcms} -d ${POSTGRES_DB:-paintingcms}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,14 +33,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # The whole .env flows into the container (PUBLIC_URL, BOT_TOKEN, ...).
+    env_file:
+      - .env
     environment:
-      # In-container connection (db = compose service name)
-      DATABASE_URL: postgresql://${POSTGRES_USER:-paintingcms}:${POSTGRES_PASSWORD:-paintingcms-dev}@db:5432/${POSTGRES_DB:-paintingcms}
-      BOT_TOKEN: ${BOT_TOKEN:-}
-      WEBAPP_URL: ${WEBAPP_URL:-}
-      INIT_DATA_MAX_AGE_SECONDS: ${INIT_DATA_MAX_AGE_SECONDS:-600}
-      PORT: 3000
+      # Container-specific overrides: `db` is the compose service name.
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}"
       NODE_ENV: production
+      PORT: 3000
+      PHOTOS_STORAGE_DIR: /app/storage/photos
     volumes:
       - photos:/app/storage/photos
 
@@ -51,13 +53,12 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-    # auto-TLS for the real domain; localhost is served with an internal CA
-    command: caddy reverse-proxy --from ${CADDY_DOMAIN:-localhost} --to api:3000
+    # PUBLIC_URL is the single public origin: https://domain → auto-TLS via
+    # Let's Encrypt; http://localhost → plain HTTP for a local smoke test.
+    command: "caddy reverse-proxy --from ${PUBLIC_URL:?set PUBLIC_URL in .env} --to api:3000"
 
 volumes:
   pgdata:

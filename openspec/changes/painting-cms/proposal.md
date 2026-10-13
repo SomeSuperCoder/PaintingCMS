@@ -30,5 +30,5 @@ A painter needs a dead-simple, private way to track her paintings on sale from h
 
 - **Repo**: entire greenfield repository — `apps/web`, `apps/api`, infra (`podman-compose.yml`, Caddy), `Justfile`, `.github/workflows/ci.yml`, OpenSpec specs.
 - **External systems**: Telegram Bot API (bot token, Mini App domain whitelist via BotFather `/setdomain`, menu button), Postgres 16 container, Caddy for HTTPS; no cloud services.
-- **Secrets**: `BOT_TOKEN`, `DATABASE_URL`, `WEBAPP_URL` live in `.env` (gitignored) + GitHub Actions secrets; `.env.example` committed.
+- **Secrets/config**: `BOT_TOKEN`, `POSTGRES_*`, `PUBLIC_URL` live in a single root `.env` (gitignored; the SSOT for dev, `just`, and the podman containers); `.env.example` is committed. `DATABASE_URL` is derived, not stored.
 - **API surface**: REST endpoints under `/api/v1` — auth check, paintings CRUD, locations CRUD, photo upload/stream/delete, ownership transfer.

@@ -27,10 +27,10 @@ import {
  *   NEVER set DEV_MODE=true in production.
  * - BOT_TOKEN is REQUIRED for auth in production: it is the HMAC secret for
  *   every initData validation (design D2). Optional when DEV_MODE=true.
- * - WEBAPP_URL defaults to '' because CORS falls back to reflecting origins
- *   in local dev only; production sets it and CORS becomes strict.
- * - CADDY_DOMAIN is optional: it is consumed only by the Caddy container
- *   (compose-level), the API itself never reads it.
+ * - PUBLIC_URL is the ONE public URL for the whole app (Caddy domain, CORS
+ *   allow-list, Telegram webhook base, bot Mini App button). It defaults to ''
+ *   for local dev, where CORS reflects any origin; in production it is
+ *   REQUIRED and must be https:// (fail fast instead of silently open CORS).
  */
 export class EnvironmentVariables {
   @IsIn(['development', 'production', 'test'])
@@ -59,17 +59,22 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   BOT_TOKEN!: string;
 
+  /**
+   * The app's single public origin. Optional in dev (CORS reflects); REQUIRED
+   * and https:// in production — validated by the @ValidateIf below.
+   */
+  @ValidateIf((obj) => obj.NODE_ENV === 'production')
   @IsString()
-  WEBAPP_URL: string = '';
+  @IsNotEmpty()
+  @Matches(/^https:\/\/[^\s]+$/, {
+    message: 'PUBLIC_URL must be an https:// URL in production (e.g. https://painting.example.com)',
+  })
+  PUBLIC_URL: string = '';
 
   @Type(() => Number)
   @IsInt()
   @Min(1)
   INIT_DATA_MAX_AGE_SECONDS: number = 600;
-
-  @IsOptional()
-  @IsString()
-  CADDY_DOMAIN?: string;
 
   /**
    * Photos storage root (design D9): overrides the cwd/storage/photos default
@@ -83,7 +88,7 @@ export class EnvironmentVariables {
 
 /**
  * ConfigModule.validate hook. `whitelist: true` silently strips unrelated
- * variables (POSTGRES_USER, DATABASE_URL_PROD, ...) instead of failing on
+ * variables (POSTGRES_USER, POSTGRES_PASSWORD, ...) instead of failing on
  * them; unknown API-level variables still surface as validation errors.
  */
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

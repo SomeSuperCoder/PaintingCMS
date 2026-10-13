@@ -31,4 +31,15 @@ export default tseslint.config(
       '@typescript-eslint/interface-name-prefix': 'off',
     },
   },
+  {
+    // Container-start migration runner is plain CommonJS (loaded by node in
+    // the prod image, no build step) — require() is correct there.
+    files: ['**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 );

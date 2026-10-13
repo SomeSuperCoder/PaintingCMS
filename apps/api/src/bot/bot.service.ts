@@ -32,7 +32,7 @@ const RU = {
   otherMessageHint: 'Нажмите кнопку ниже, чтобы открыть каталог картин.',
 } as const;
 
-/** The webhook lives at ${WEBAPP_URL}${BOT_WEBHOOK_PATH_PREFIX}/<secret>. */
+/** The webhook lives at ${PUBLIC_URL}${BOT_WEBHOOK_PATH_PREFIX}/<secret>. */
 export const BOT_WEBHOOK_PATH_PREFIX = '/bot';
 
 /**
@@ -110,13 +110,13 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Inline keyboard with the WebApp button (web_app.url = WEBAPP_URL — the
-   * Mini App contract). Returns undefined when WEBAPP_URL is unset (local dev
+   * Inline keyboard with the WebApp button (web_app.url = PUBLIC_URL — the
+   * Mini App contract). Returns undefined when PUBLIC_URL is unset (local dev
    * default) — the reply is text-only rather than a dead button.
    */
   private startReplyMarkup(): { reply_markup: InlineKeyboard } | undefined {
-    const webappUrl = this.config.get<string>('WEBAPP_URL', '').replace(/\/+$/, '');
-    if (!webappUrl) return undefined;
-    return { reply_markup: new InlineKeyboard().webApp(RU.openCatalog, webappUrl) };
+    const publicUrl = this.config.get<string>('PUBLIC_URL', '').replace(/\/+$/, '');
+    if (!publicUrl) return undefined;
+    return { reply_markup: new InlineKeyboard().webApp(RU.openCatalog, publicUrl) };
   }
 }

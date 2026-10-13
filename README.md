@@ -17,18 +17,35 @@ Vite SPA (Russian-only UI). DB: PostgreSQL 16 + Drizzle ORM. Bot: grammY
 
 ## Quick start
 
-All developer tasks run through the Justfile (`just --list` shows all recipes):
+Everything runs through the Justfile (`just --list`):
 
 ```sh
-just install   # pnpm install (workspace deps)
-just db-up     # start postgres:16 container (healthchecked, localhost:5432)
-just migrate   # apply Drizzle migrations to the dev DB
-just dev       # Vite on :5173 (proxies /api → NestJS on :3000)
+cp .env.example .env   # then set POSTGRES_* (PUBLIC_URL/BOT_TOKEN optional in dev)
+just install           # pnpm install (workspace deps)
+just dev               # postgres + migrations + Vite (:5173) + NestJS (:3000)
 ```
 
-Then open http://localhost:5173. Production-like stack: `just compose-up`
-(db + api + caddy). Deploy: `just deploy` (git pull + compose up + /health
-smoke).
+Open http://localhost:5173. The local prod-like stack (db + api + caddy) is
+`just up`; stop it with `just down`, follow it with `just logs`.
+
+## Deploy
+
+Deploys are manual, on the server — CI never touches production.
+
+1. On the server, put the real secrets in `.env` (see `.env.example`):
+   `PUBLIC_URL=https://<domain>`, `POSTGRES_PASSWORD` (URL-safe),
+   `BOT_TOKEN`. DNS must point at the host and ports 80/443 must be open
+   (Caddy auto-TLS).
+2. Run `just deploy`. It pulls, rebuilds the stack, and waits until the `api`
+   container is healthy; on failure it prints the logs and the DB recovery hint.
+
+`.env` is the single source of truth for bare-metal dev, `just`, and the
+podman containers (compose reads it automatically and streams it into the api
+container). `DATABASE_URL` is derived — you never set it by hand.
+
+> ⚠ Postgres only reads `POSTGRES_PASSWORD` when it first creates the data
+> volume. Set it before the first `just up` and don't change it later; if you
+> must, `just backup` then `just db-reset` (destroys local data).
 
 ## Script contract (for engineers)
 
@@ -47,10 +64,11 @@ Cross-package imports use `workspace:*` (e.g. `"@painting/shared":
 
 ## Production notes
 
-- Copy `.env.example` → `.env` and set real values: `BOT_TOKEN` (BotFather),
-  `WEBAPP_URL` (https, BotFather `/setdomain`), `CADDY_DOMAIN` (DNS must point
-  at the host, ports 80/443 open).
-- Secrets live only in `.env` / CI secrets — never in code or git.
+- Copy `.env.example` → `.env` and set real values: `PUBLIC_URL`
+  (`https://<domain>`, also used in BotFather `/setdomain`), `BOT_TOKEN`
+  (BotFather), `POSTGRES_PASSWORD`. DNS must point at the host, ports 80/443
+  open.
+- Secrets live only in `.env` — never in code, git, or CI.
 - Rollback: `podman-compose down` + previous image; migrations have `down`
   files.
 - `just backup` → `pg_dump` into `backups/` (gitignored).
@@ -61,7 +79,7 @@ Cross-package imports use `workspace:*` (e.g. `"@painting/shared":
 apps/web/          React 19 SPA (Vite) — scaffolded, code lands next wave
 apps/api/          NestJS 11 API + Dockerfile — scaffolded, code lands next wave
 packages/shared/   shared DTO types / constants — scaffolded, code lands next wave
-podman-compose.yml db + api + caddy topology (D9)
-.github/workflows/ci.yml  verify → e2e → deploy (D9)
-Justfile           install/dev/db/quality/compose/deploy recipes (D9)
+podman-compose.yml db + api + caddy topology (D9); reads .env
+.github/workflows/ci.yml  verify → e2e (deploys are manual: `just deploy`)
+Justfile           install/dev/up/down/logs/migrate/backup/deploy (D9)
 ```

@@ -1,4 +1,6 @@
-# PaintingCMS CI (design D9): verify → e2e → deploy (main only)
+# PaintingCMS CI (design D9): verify → e2e
+# Deploys are manual on the server (`just deploy`) — the secrets you need stay
+# on the server's `.env`, so CI never touches production.
 name: CI
 
 on:
@@ -64,7 +66,6 @@ jobs:
           # postgres service on the runner (test DB, isolated — never prod)
           DATABASE_URL: postgresql://paintingcms:paintingcms-test@localhost:5432/paintingcms_test
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
         # Contract: the Playwright config's webServer starts the API (against
         # DATABASE_URL above) and the built web app; tests use mocked TMA.
         run: pnpm test:e2e
@@ -75,30 +76,3 @@ jobs:
           name: playwright-report
           path: apps/web/playwright-report
           retention-days: 30
-
-  deploy:
-    needs: e2e
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy via SSH
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_KEY: ${{ secrets.SSH_KEY }}
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
-              "${SSH_USER}@${SSH_HOST}" '
-            set -e
-            cd /opt/paintingcms
-            git pull --ff-only
-            podman-compose up -d --build
-            sleep 10
-            curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://localhost/health
-          '
