@@ -11,9 +11,9 @@ services:
     image: docker.io/library/postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       # Loopback only — for the bare-metal `just dev` workflow. Never public.
       - "127.0.0.1:5432:5432"
@@ -44,6 +44,14 @@ services:
       PHOTOS_STORAGE_DIR: /app/storage/photos
     volumes:
       - photos:/app/storage/photos
+    # Healthcheck defined HERE (not only in the Dockerfile): podman builds OCI
+    # images, which drop the Dockerfile HEALTHCHECK. `just deploy` polls this.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
   caddy:
     image: docker.io/library/caddy:2-alpine
@@ -58,7 +66,7 @@ services:
       - caddy_config:/config
     # PUBLIC_URL is the single public origin: https://domain → auto-TLS via
     # Let's Encrypt; http://localhost → plain HTTP for a local smoke test.
-    command: "caddy reverse-proxy --from ${PUBLIC_URL:?set PUBLIC_URL in .env} --to api:3000"
+    command: "caddy reverse-proxy --from ${PUBLIC_URL} --to api:3000"
 
 volumes:
   pgdata:

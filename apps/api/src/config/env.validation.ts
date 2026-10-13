@@ -61,13 +61,15 @@ export class EnvironmentVariables {
 
   /**
    * The app's single public origin. Optional in dev (CORS reflects); REQUIRED
-   * and https:// in production — validated by the @ValidateIf below.
+   * in production and must be https:// — except loopback http, which is
+   * allowed so `just up` can smoke-test the full stack locally.
    */
   @ValidateIf((obj) => obj.NODE_ENV === 'production')
   @IsString()
   @IsNotEmpty()
-  @Matches(/^https:\/\/[^\s]+$/, {
-    message: 'PUBLIC_URL must be an https:// URL in production (e.g. https://painting.example.com)',
+  @Matches(/^(https:\/\/[^\s]+|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/, {
+    message:
+      'PUBLIC_URL must be an https:// URL in production (http:// is only allowed for localhost)',
   })
   PUBLIC_URL: string = '';
 

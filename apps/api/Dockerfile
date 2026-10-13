@@ -8,7 +8,7 @@
 #   - photos volume is mounted at /app/storage/photos by podman-compose.yml
 
 # ---- Stage 1: install workspace deps + build ----
-FROM node:22-alpine AS build
+FROM docker.io/library/node:22-alpine AS build
 WORKDIR /repo
 
 # Bootstrap pnpm at the workspace version (host workflow is pnpm-only; npm is
@@ -38,7 +38,7 @@ RUN pnpm --filter @painting/api build
 RUN pnpm --filter @painting/web build
 
 # ---- Stage 2: runtime (non-root) ----
-FROM node:22-alpine AS runtime
+FROM docker.io/library/node:22-alpine AS runtime
 WORKDIR /repo
 
 # node:22-alpine already ships the `node` user (uid 1000, gid 1000) — that is

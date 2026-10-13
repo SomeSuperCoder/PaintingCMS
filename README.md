@@ -13,7 +13,7 @@ Vite SPA (Russian-only UI). DB: PostgreSQL 16 + Drizzle ORM. Bot: grammY
 - **API:** NestJS 11 + Drizzle + Postgres 16, TMA initData auth (D2)
 - **Tests:** Vitest (unit), Playwright (E2E, mocked TMA)
 - **Deploy:** podman-compose — `db` (postgres:16) + `api` + `caddy` (80/443)
-- **CI:** GitHub Actions — verify → e2e → deploy (main only)
+- **CI:** GitHub Actions — verify → e2e (deploys are manual: `just deploy`)
 
 ## Quick start
 
@@ -26,7 +26,9 @@ just dev               # postgres + migrations + Vite (:5173) + NestJS (:3000)
 ```
 
 Open http://localhost:5173. The local prod-like stack (db + api + caddy) is
-`just up`; stop it with `just down`, follow it with `just logs`.
+`just up`; stop it with `just down`, follow it with `just logs`. Caddy binds
+ports 80/443, so `just up` needs rootful podman (or a rootless host with
+`net.ipv4.ip_unprivileged_port_start=80`); otherwise use `just dev`.
 
 ## Deploy
 
@@ -36,8 +38,11 @@ Deploys are manual, on the server — CI never touches production.
    `PUBLIC_URL=https://<domain>`, `POSTGRES_PASSWORD` (URL-safe),
    `BOT_TOKEN`. DNS must point at the host and ports 80/443 must be open
    (Caddy auto-TLS).
-2. Run `just deploy`. It pulls, rebuilds the stack, and waits until the `api`
+2. Run `just deploy` **as root** (rootful podman, so Caddy can bind 80/443):
+   `sudo just deploy`. It pulls, rebuilds the stack, and waits until the `api`
    container is healthy; on failure it prints the logs and the DB recovery hint.
+   (Rootless podman works too if the host sets
+   `net.ipv4.ip_unprivileged_port_start=80`.)
 
 `.env` is the single source of truth for bare-metal dev, `just`, and the
 podman containers (compose reads it automatically and streams it into the api
