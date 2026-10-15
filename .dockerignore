@@ -13,6 +13,12 @@ backups/
 openspec/
 docs/
 
+# Agent/editor trees — not build inputs. `.opencode` alone is ~63 MB and was
+# being shipped to the builder on EVERY build, including no-op deploys.
+.opencode/
+.vscode/
+.idea/
+
 .env
 .env.*
 !.env.example

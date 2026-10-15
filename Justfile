@@ -51,14 +51,41 @@ backup:
 
 # ── Deploy (run on the server) ──────────────────────────────
 
-# Deploy: pull, rebuild, restart, then wait until the api container is healthy
-deploy:
+# Deploy: pull, rebuild ONLY if the source changed, restart, wait for health.
+#
+# The build is the expensive step (pnpm install + shared/api/web builds +
+# pnpm deploy), so a no-op deploy must not pay for it. `.deploy-stamp` records
+# the commit of the last successful build; we rebuild only when one of these
+# holds:
+#   - force=true was passed (`just deploy force=true` — the escape hatch)
+#   - the stamp is missing or names a different commit than HEAD
+#   - the working tree is dirty (an uncommitted edit, incl. the Dockerfile,
+#     is NOT in HEAD, so it would otherwise be silently skipped)
+#   - no api container is running (image pruned / container removed → we must
+#     not assume the deployed image still exists)
+# Note `podman-compose up -d` still re-applies env_file, so editing .env alone
+# correctly skips the rebuild and still takes effect.
+#
+# Deploy: pull, rebuild ONLY if the source changed, restart, wait for health.
+deploy force="false":
     @test -f .env || { echo "Missing .env — run: cp .env.example .env and fill PUBLIC_URL, POSTGRES_PASSWORD, BOT_TOKEN"; exit 1; }
     @test -n "${PUBLIC_URL:-}" || { echo "PUBLIC_URL is empty in .env"; exit 1; }
     @test -n "${POSTGRES_PASSWORD:-}" || { echo "POSTGRES_PASSWORD is empty in .env"; exit 1; }
     @test -n "${BOT_TOKEN:-}" || { echo "BOT_TOKEN is empty in .env"; exit 1; }
     git pull --ff-only
-    podman-compose up -d --build
+    @head=$(git rev-parse HEAD); stamp=.deploy-stamp; \
+     if [ "{{force}}" = "true" ]; then \
+       echo "force=true — rebuilding the api image."; \
+       podman-compose up -d --build; \
+       printf '%s' "$head" > "$stamp"; \
+     elif [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$head" ] && [ -z "$(git status --porcelain)" ] && [ -n "$(podman-compose ps -q api)" ]; then \
+       echo "Already deployed $head (working tree clean) — reusing the image, skipping build."; \
+       podman-compose up -d; \
+     else \
+       echo "Building the api image ..."; \
+       podman-compose up -d --build; \
+       printf '%s' "$head" > "$stamp"; \
+     fi
     @echo "Waiting for api to become healthy ..."
     @cid=$(podman-compose ps -q api); \
      for i in $(seq 1 40); do \

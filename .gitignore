@@ -16,6 +16,11 @@ data/
 storage/
 backups/
 
+# Last commit shipped by `just deploy` — lets a no-op deploy skip the image
+# build. Untracked local state; MUST stay ignored or its presence dirties
+# `git status --porcelain`, which the deploy skip-check relies on.
+.deploy-stamp
+
 # ── test artifacts ────────────────────────────────────────
 playwright-report/
 test-results/

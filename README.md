@@ -122,9 +122,13 @@ Telegram as a Mini App. Caddy obtains the TLS certificate automatically.
    sudo just deploy
    ```
 
-   It pulls the latest code, rebuilds the stack (`db` + `api` + `caddy`), and
-   waits until the `api` container is healthy. On failure it prints the logs
-   plus the DB-password recovery hint.
+   It pulls the latest code and rebuilds **only when the source actually
+   changed** — the last deployed commit is recorded in `.deploy-stamp`, so a
+   no-op deploy reuses the existing image and finishes in seconds. Force a
+   rebuild with `sudo just deploy force=true` (e.g. after pruning images).
+   Editing `.env` alone does not trigger a rebuild; the values are applied at
+   container start. On failure it prints the logs plus the DB-password recovery
+   hint.
 
 4. **Verify from the outside**
 
@@ -163,6 +167,7 @@ Telegram as a Mini App. Caddy obtains the TLS certificate automatically.
 | `just backup` | `pg_dump` into `backups/` (gitignored) |
 | `just down` | stop the stack (data preserved) |
 | `just owner-reset` | clear the current owner (next opener claims it) |
+| `just deploy force=true` | rebuild the image even if unchanged |
 
    Rollback: check out the previous commit and run `sudo just deploy` again;
    migrations ship with `down` files.
