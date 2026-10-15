@@ -70,6 +70,19 @@ backup:
 # worth it for a single-app box.
 api_cid := "podman ps -q --filter label=io.podman.compose.service=api --filter status=running | head -1"
 
+# Same container, ANY state (running or not). Used to tell "still booting" apart
+# from "crashed": a container that has exited will never become healthy on its
+# own, so waiting the full timeout for it is pointless. Without this, a crash
+# and a slow start both surface as an empty id and are indistinguishable.
+api_cid_any := "podman ps -aq --filter label=io.podman.compose.service=api | head -1"
+
+# `podman inspect --format` wants Go templates, and Go templates use {{...}} —
+# which `just` would try to interpret as its own interpolation. Declaring them
+# as variables keeps the braces literal (verified: the value is NOT re-parsed).
+go_state := "{{.State.Status}}"
+go_health := "{{.State.Health.Status}}"
+go_exit_code := "{{.State.ExitCode}}"
+
 # Everything that determines the image — exactly what the Dockerfile COPYs.
 # The Dockerfile itself lives under apps/api so it is covered here; .dockerignore
 # is listed because it decides which files enter the context at all.
@@ -123,32 +136,59 @@ deploy force="false":
      fi; \
      if [ "$build" = "1" ]; then \
        echo "Building the api image ..."; \
-       podman-compose up -d --build; \
+       podman-compose up -d --build --force-recreate; \
      else \
        echo "No build inputs changed since the last verified deploy — reusing the image."; \
-       podman-compose up -d; \
+       podman-compose up -d --force-recreate; \
      fi
     @echo "Waiting for api to become healthy ..."
-    @saw_container=0; \
-     for i in $(seq 1 40); do \
+    @attempts=40; fails=0; asked=0; \
+     for i in $(seq 1 $attempts); do \
        cid=$({{api_cid}}); \
        if [ -n "$cid" ]; then \
-         saw_container=1; \
-         podman healthcheck run "$cid" >/dev/null 2>&1 && { \
-           echo "api is healthy."; \
+         if podman healthcheck run "$cid" >/dev/null 2>&1; then \
+           echo "  api is healthy (attempt $i/$attempts)."; \
            git rev-parse HEAD > .deploy-stamp; \
-           echo "Recorded .deploy-stamp (verified deploy)."; \
-           exit 0; }; \
+           echo "  Recorded .deploy-stamp (verified deploy)."; \
+           exit 0; \
+         fi; \
+         health=$(podman inspect --format {{go_health}} "$cid" 2>/dev/null); \
+         echo "  [$i/$attempts] not healthy yet (health=${health:-unknown})"; \
+       else \
+         any=$({{api_cid_any}}); \
+         if [ -z "$any" ]; then \
+           echo "  [$i/$attempts] no api container created yet"; \
+         else \
+           state=$(podman inspect --format {{go_state}} "$any" 2>/dev/null); \
+           code=$(podman inspect --format {{go_exit_code}} "$any" 2>/dev/null); \
+           if [ "$state" = "exited" ] || [ "$state" = "dead" ]; then \
+             echo "  [$i/$attempts] the api container EXITED (state=$state, exit code=${code:-?})."; \
+             echo "  It will not recover on its own. Container logs:"; \
+             podman-compose logs --tail=20 api; \
+             echo; \
+             echo "  If this is an env problem, fix .env and re-run 'just deploy'."; \
+             exit 1; \
+           fi; \
+           echo "  [$i/$attempts] api container state=${state:-unknown}, waiting to start"; \
+         fi; \
+       fi; \
+       fails=$((fails+1)); \
+       if [ "$fails" -eq 3 ] && [ "$asked" = "0" ]; then \
+         asked=1; \
+         if [ -t 0 ]; then \
+           printf "  Still not healthy after %s attempts. Would you like to see the container logs now? [y/N] " "$fails"; \
+           if read -t 60 -r ans; then \
+             case "$ans" in [yY]*) echo; podman-compose logs --tail=20 api; exit 1;; esac; \
+           fi; \
+           echo; \
+         else \
+           echo "  (non-interactive — continuing to wait; use 'just logs' in another shell to watch)"; \
+         fi; \
        fi; \
        sleep 3; \
      done; \
-     if [ "$saw_container" = "0" ]; then \
-       echo "No RUNNING api container was ever found (label io.podman.compose.service=api)."; \
-       echo "Check that 'podman-compose up -d' actually created it:"; \
-       echo "  podman ps -a --filter label=io.podman.compose.project"; \
-     fi; \
-     echo "api did not become healthy in time. Last logs:"; \
-     podman-compose logs --tail=80 api; \
+     echo "api did not become healthy in $attempts attempts (~$((attempts*3))s). Last logs:"; \
+     podman-compose logs --tail=20 api; \
      echo; \
      echo "If this is a Postgres password error: restore the old POSTGRES_PASSWORD in .env,"; \
      echo "or run 'just backup' and then 'just db-reset' (DESTROYS data)."; \
