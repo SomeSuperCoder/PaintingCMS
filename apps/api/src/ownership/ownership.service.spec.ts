@@ -14,6 +14,7 @@
  */
 
 import { UnprocessableEntityException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ERROR_MESSAGES } from '@painting/shared';
@@ -137,7 +138,10 @@ function makeHarness(): Harness {
   const dbMock = { select, transaction };
   const db = dbMock as unknown as DrizzleDb;
   return {
-    service: new OwnershipService(db, notifier),
+    // devMode defaults to false: these tests exercise the real state machine.
+    service: new OwnershipService(db, notifier, {
+      get: (k: string, d?: unknown) => (k === 'DEV_MODE' ? false : d),
+    } as unknown as ConfigService),
     db: dbMock,
     notifier: notifierMock,
     chains,

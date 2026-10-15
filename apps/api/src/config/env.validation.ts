@@ -1,5 +1,6 @@
 import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
+  Equals,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -49,8 +50,24 @@ export class EnvironmentVariables {
   })
   DATABASE_URL!: string;
 
+  /**
+   * Development escape hatch. When true: HMAC verification is skipped, every
+   * request is the constant DEV_USER, and ownership persistence is bypassed
+   * entirely — the app is fully unauthenticated and nobody owns it.
+   *
+   * MUST NOT be combined with NODE_ENV=production. The @ValidateIf/@Equals pair
+   * below encodes that: the constraint only evaluates when DEV_MODE is true AND
+   * NODE_ENV is production, and then demands DEV_MODE be false — so the
+   * combination fails validation and the app refuses to boot, instead of relying
+   * on the "NEVER in production" comment.
+   */
   @IsOptional()
   @Transform(({ value }) => value === true || value === 'true')
+  @ValidateIf((obj) => obj.DEV_MODE === true && obj.NODE_ENV === 'production')
+  @Equals(false, {
+    message:
+      'DEV_MODE=true is a development-only escape hatch (no auth, no ownership) and MUST NOT be used when NODE_ENV=production',
+  })
   DEV_MODE: boolean = false;
 
   /** Required in production. Optional when DEV_MODE=true (HMAC bypass). */

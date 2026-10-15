@@ -10,3 +10,4 @@
 // dist/index.js then loads natively (import AND require(esm) on Node 22).
 export * from './api-contract.js';
 export * from './endpoints.js';
+export * from './dev-user.js';

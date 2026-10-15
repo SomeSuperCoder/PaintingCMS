@@ -22,6 +22,10 @@
  * the UPDATE, so a pending transfer never exists without its record (and vice
  * versa). The guard ALREADY writes 'transfer-confirmed' at swap time — this
  * service NEVER writes it (double-writing would duplicate the audit trail).
+ *
+ *   - DEV_MODE: both surfaces return a SYNTHETIC state (DEV_USER owner, empty
+ *   audit trail). OwnershipGuard skips the state machine in dev, so there is no
+ *   app_state row — without this the inner join would 500 the «Владелец» screen.
  */
 
 import {
@@ -31,10 +35,12 @@ import {
   InternalServerErrorException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import {
+  DEV_USER,
   ERROR_MESSAGES,
   type OwnershipDto,
   type OwnershipEventType,
@@ -51,13 +57,43 @@ const toUser = alias(users, 'to_user');
 
 @Injectable()
 export class OwnershipService {
+  private readonly devMode: boolean;
+
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     private readonly notifier: TransferNotifierService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.devMode = config.get<boolean>('DEV_MODE', false);
+  }
+
+  /**
+   * DEV_MODE stand-in for the real ownership state.
+   *
+   * OwnershipGuard skips the state machine entirely in DEV_MODE, so there is no
+   * `app_state` row. The real getOwnershipState() inner-joins app_state ⋈ users
+   * and turns a missing row into a 500, which would break the «Владелец» screen
+   * during a browser smoke test. Return a synthetic owner (DEV_USER, the
+   * identity AuthGuard attached) with an empty audit trail instead: the screen
+   * renders, the transfer dialog opens, and nothing pretends ownership exists.
+   */
+  private devOwnershipState(): OwnershipDto {
+    return {
+      owner: {
+        id: DEV_USER.id,
+        username: DEV_USER.username,
+        first_name: DEV_USER.firstName,
+      },
+      events: [],
+    };
+  }
 
   /** Current owner + full audit trail, newest first (contract OwnershipDto). */
   async getOwnershipState(): Promise<OwnershipDto> {
+    if (this.devMode) {
+      return this.devOwnershipState();
+    }
+
     const [owner] = await this.db
       .select({
         id: users.id,
@@ -137,6 +173,16 @@ export class OwnershipService {
    * target becomes owner on their NEXT open, never here.
    */
   async transfer(targetUsername: string, caller: AuthUser): Promise<TransferResultDto> {
+    // DEV_MODE: ownership does not exist, so there is nothing to hand over and
+    // no @username to resolve — the dev user is not even in the `users` table.
+    // Return the synthetic state so the transfer dialog closes cleanly during a
+    // browser smoke test instead of 422-ing on a target that can never exist.
+    // The real transfer state machine is covered by the E2E suite (journey 04),
+    // which runs with DEV_MODE unset.
+    if (this.devMode) {
+      return { ...this.devOwnershipState(), status: 'transfer-initiated' };
+    }
+
     const username = normalizeUsername(targetUsername);
 
     // Resolve the target via the recorded-users table (design D3: the users

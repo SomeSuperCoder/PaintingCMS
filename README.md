@@ -25,8 +25,8 @@ containers; `DATABASE_URL` is derived — you never set it by hand.
 
 **Goal:** run the app on a server and confirm from a web browser that CRUD
 actually works — with no Telegram client and no real bot token. `DEV_MODE`
-bypasses initData HMAC on the API, and the Vite dev server sends a mock user, so
-a plain browser is enough.
+bypasses auth entirely (every request is the shared `DEV_USER` mock) so a plain
+browser is enough.
 
 **Prerequisites (on the server):** Node 22+, pnpm 10 (`corepack enable`),
 podman + podman-compose, and `just`.
@@ -65,18 +65,22 @@ podman + podman-compose, and `just`.
      server-side, so `:5173` is the only port you need.
 
 5. **Verify it actually works**
-   - The first authenticated request **claims ownership**: you become the owner
-     (mock user id `123456789`) and land on the painting catalog.
+   - You land straight on the painting catalog — in DEV_MODE ownership is
+     bypassed, so there is no owner to claim and nobody can be locked out.
    - Create a painting, upload a photo, add/reuse a location, then edit and
      delete.
    - Reload — the data persists in postgres.
+   - Note: nothing is written to the `users` table and no ownership row is
+     created, so the dev session leaves no ownership trace behind.
 
 6. **Stop**
 
    `Ctrl-C`, then `just down`.
 
-> ⚠ `DEV_MODE` skips HMAC verification entirely. Never enable it on a public
-> production deployment.
+> ⚠ `DEV_MODE` skips authentication *and* ownership completely — every request
+> is the mock `DEV_USER` and nothing is recorded. Never enable it in production:
+> the API refuses to boot when `DEV_MODE=true` together with
+> `NODE_ENV=production`.
 
 ---
 
@@ -142,14 +146,23 @@ Telegram as a Mini App. Caddy obtains the TLS certificate automatically.
    - To transfer: the new owner must have opened the app at least once (so they
      are registered). The current owner uses the in-app transfer with the
      target's `@username`; the target becomes owner on their **next** open.
+   - If the database was smoke-tested with `DEV_MODE` *before* the ownership
+     bypass existed, it may already hold a stale test owner. Clear it once —
+     paintings, photos, locations and the audit trail are preserved, and the
+     first person to open the app then becomes the owner:
+
+     ```sh
+     just owner-reset
+     ```
 
 7. **Operate**
 
    | Command | What it does |
    |---------|--------------|
-   | `just logs` | tail container logs |
-   | `just backup` | `pg_dump` into `backups/` (gitignored) |
-   | `just down` | stop the stack (data preserved) |
+| `just logs` | tail container logs |
+| `just backup` | `pg_dump` into `backups/` (gitignored) |
+| `just down` | stop the stack (data preserved) |
+| `just owner-reset` | clear the current owner (next opener claims it) |
 
    Rollback: check out the previous commit and run `sudo just deploy` again;
    migrations ship with `down` files.

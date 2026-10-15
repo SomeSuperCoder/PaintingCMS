@@ -72,7 +72,22 @@ deploy:
      echo "or run 'just backup' and then 'just db-reset' (DESTROYS data)."; \
      exit 1
 
-# ── Recovery ────────────────────────────────────────────────
+# ── Recovery ────────────────────────────────────────────────────────────────
+
+# Clear the ownership singleton so the NEXT validated user claims it. Use on a
+# database that was smoke-tested while ownership still persisted (before the
+# DEV_MODE bypass), so the painter is not locked out behind a stale test owner.
+# Only app_state is touched — paintings, photos, locations and the audit trail
+# are preserved. The leftover dev user row is harmless: it is never the owner.
+#
+# Clear the current owner so the next person to open the app becomes the owner.
+owner-reset:
+    @test -n "${POSTGRES_USER:-}" || { echo "set POSTGRES_USER in .env"; exit 1; }
+    @test -n "${POSTGRES_DB:-}" || { echo "set POSTGRES_DB in .env"; exit 1; }
+    @echo "This clears the current owner. The NEXT person to open the app becomes the owner."
+    @read -p "Type 'yes' to continue: " ans; [ "${ans:-}" = "yes" ] || { echo "aborted"; exit 1; }
+    podman-compose exec -T db psql -v ON_ERROR_STOP=1 -U ${POSTGRES_USER} -d ${POSTGRES_DB} -c 'DELETE FROM app_state'
+    @echo "Ownership cleared."
 
 # DESTRUCTIVE: wipe the db volume and recreate it (use after changing POSTGRES_PASSWORD)
 db-reset:

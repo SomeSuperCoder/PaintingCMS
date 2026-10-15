@@ -12,6 +12,12 @@
  * body). SESSION_EXPIRED (validly signed but stale) is also 401, per the
  * contract's two 401 codes. Auth failures can NEVER surface as 500.
  *
+ * DEV_MODE (development only): the header is neither required nor read. Every
+ * request is authenticated as the constant DEV_USER (@painting/shared) and NO
+ * user row is written — so a dev identity can never own the catalog or leak
+ * into the database a real deployment later serves. env validation refuses to
+ * boot when DEV_MODE=true together with NODE_ENV=production.
+ *
  * Registration: global APP_GUARD (AppModule) so every future domain module is
  * authenticated by default; @Public() opts routes out (/health only). Also
  * usable per-controller as @UseGuards(AuthGuard) where an explicit declaration
@@ -28,7 +34,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
-import { AUTH_HEADER, ERROR_MESSAGES } from '@painting/shared';
+import { AUTH_HEADER, DEV_USER, ERROR_MESSAGES } from '@painting/shared';
 import type { Request } from 'express';
 
 import { DRIZZLE_DB, type DrizzleDb } from '../db/drizzle.module';
@@ -62,7 +68,7 @@ export class AuthGuard implements CanActivate {
     this.devMode = this.config.get<boolean>('DEV_MODE', false);
     if (this.devMode) {
       this.logger.warn(
-        '[DEV_MODE] HMAC verification disabled — do NOT use in production',
+        '[DEV_MODE] Authentication and ownership are bypassed — every request is DEV_USER and nothing is written to the users table. Do NOT use in production.',
       );
     }
   }
@@ -74,11 +80,24 @@ export class AuthGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<RequestWithAuth>();
 
+    // DEV_MODE: the identity is a CONSTANT, so the header is never read or
+    // parsed — and, critically, the user is NOT upserted. Ownership persists
+    // nothing in DEV_MODE either (ownership.guard.ts), and the only FKs into
+    // `users` are app_state + ownership_events, so skipping this write leaves no
+    // dangling reference. A dev identity that never reaches the database cannot
+    // hold ownership there — that is what makes the dev lockout impossible.
+    if (this.devMode) {
+      request.user = {
+        id: DEV_USER.id,
+        username: DEV_USER.username,
+        firstName: DEV_USER.firstName,
+      };
+      return true;
+    }
+
     // Express lowercases header names; the contract constant is the SSOT.
     const raw = request.headers[AUTH_HEADER.toLowerCase()];
-    const user = this.devMode
-      ? this.authenticateDevMode(raw)
-      : this.authenticate(raw);
+    const user = this.authenticate(raw);
 
     await this.upsertUser(user);
 
@@ -110,48 +129,12 @@ export class AuthGuard implements CanActivate {
   }
 
   /**
-   * DEV_MODE bypass: skip HMAC, parse the `user` field from the header directly.
-   * The frontend mock sends `user={"id":"...","username":"...","firstName":"..."}`.
-   */
-  private authenticateDevMode(raw: unknown): TelegramUser {
-    if (typeof raw !== 'string' || raw.length === 0) {
-      throw new UnauthorizedException({
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'DEV_MODE requires X-Telegram-Init-Data header with mock user data',
-        },
-      });
-    }
-    try {
-      const params = new URLSearchParams(raw);
-      const userJson = params.get('user');
-      if (!userJson) {
-        throw new Error('missing user field');
-      }
-      const parsed = JSON.parse(userJson) as Record<string, unknown>;
-      if (parsed.id == null) {
-        throw new Error('missing or invalid id field');
-      }
-      return {
-        id: String(parsed.id),
-        username: typeof parsed.username === 'string' ? parsed.username : undefined,
-        firstName: typeof parsed.first_name === 'string' ? parsed.first_name : '',
-      };
-    } catch {
-      throw new UnauthorizedException({
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'DEV_MODE requires X-Telegram-Init-Data header with mock user data',
-        },
-      });
-    }
-  }
-
-  /**
    * Record every validated user (design D3). Idempotent upsert — repeat
    * visits refresh username/first_name without ever throwing on conflict.
    * username stays null for users who never set one (NULLs are distinct in
    * the unique index, schema.ts).
+   *
+   * NEVER called in DEV_MODE: the dev identity must not reach the database.
    */
   private async upsertUser(user: TelegramUser): Promise<void> {
     await this.db

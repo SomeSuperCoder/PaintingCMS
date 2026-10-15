@@ -27,6 +27,11 @@
  *     is fire-and-forget and swallows bot failures — an outage never blocks
  *     or rolls back the access change.
  *   - ANYTHING ELSE → 403 ACCESS_DENIED (valid user, not the owner).
+ *   - DEV_MODE → allow, and read/write NOTHING. Ownership is a production-only
+ *     concept: the caller is the constant DEV_USER with no `users` row, so the
+ *     state machine could only violate the app_state → users FK or hand
+ *     ownership to the test identity (locking out every real user with no
+ *     transfer path out). See canActivate.
  *
  * TOCTOU discipline: the pre-read SELECT only selects the PATH; the DB
  * constraint / conditional WHERE decides the winner. No mutation is ever
@@ -49,6 +54,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { and, eq } from 'drizzle-orm';
 import { DatabaseError } from 'pg';
 
@@ -68,13 +74,18 @@ const CLAIM_RACE_CODES = new Set(['23505', '23514']);
 
 @Injectable()
 export class OwnershipGuard implements CanActivate {
+  private readonly devMode: boolean;
+
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: DrizzleDb,
     // Previous-owner notification at the confirmed swap (MAJOR-4). Resolved
     // by BotModule's export — OwnershipModule imports BotModule (also for
     // OwnershipService), so this injects in both guard instances.
     private readonly notifier: TransferNotifierService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.devMode = config.get<boolean>('DEV_MODE', false);
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<RequestWithAuth>();
@@ -87,6 +98,19 @@ export class OwnershipGuard implements CanActivate {
         error: { code: 'UNAUTHORIZED', message: ERROR_MESSAGES.UNAUTHORIZED },
       });
     }
+
+    // DEV_MODE: ownership is a PRODUCTION-ONLY concept. The caller is already
+    // the constant DEV_USER (auth.guard.ts) and no user row exists for it, so
+    // running the state machine here would either violate the app_state →
+    // users FK (500) or claim ownership for the test identity — which then
+    // locks out every real user with no way to transfer away. Return before
+    // ANY database read: nothing is claimed, nothing is written, nobody can
+    // be locked out. Ownership behaviour is covered by the E2E suite, which
+    // runs with DEV_MODE unset and HMAC-signed fixtures.
+    if (this.devMode) {
+      return true;
+    }
+
     const userId = request.user.id;
 
     const [state] = await this.db

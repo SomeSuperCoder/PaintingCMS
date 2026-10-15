@@ -7,23 +7,32 @@
  * and attaches it as X-Telegram-Init-Data on every /api/v1 request.
  */
 import { init, retrieveRawInitData } from '@telegram-apps/sdk';
+import { DEV_USER } from '@painting/shared';
 
-const MOCK_USER = {
-  id: '123456789',
-  first_name: 'Тест',
-  last_name: '',
-  username: 'test_user',
+/**
+ * Telegram-shaped `user` object for the mock initData below. initData uses
+ * Telegram's own snake_case field names, while DEV_USER (the API's AuthUser
+ * shape) uses firstName — hence the explicit mapping. Under DEV_MODE the API
+ * ignores this payload entirely and attaches DEV_USER itself, but the string
+ * still has to LOOK like real initData so the fallback stays honest.
+ */
+const MOCK_TELEGRAM_USER = {
+  id: DEV_USER.id,
+  first_name: DEV_USER.firstName,
+  username: DEV_USER.username,
   language_code: 'ru',
 };
 
 /**
  * Plausible initData for local development (dev only — NOT cryptographically
- * valid; the real backend will reject it, which is the correct server-side gate).
- * Override via the VITE_TMA_MOCK env variable.
+ * valid; a production API rejects it, which is the correct server-side gate).
+ * The identity comes from DEV_USER (@painting/shared) — the SAME constant the
+ * API's DEV_MODE bypass uses, so browser and server can never disagree on who
+ * the dev user is. Override the whole string via VITE_TMA_MOCK.
  */
 const MOCK_INIT_DATA = [
   'query_id=AAG7f1YVAgAAAAHf1YVXj5xLzA',
-  `user=${encodeURIComponent(JSON.stringify(MOCK_USER))}`,
+  `user=${encodeURIComponent(JSON.stringify(MOCK_TELEGRAM_USER))}`,
   'auth_date=1723700000',
   'hash=0000000000000000000000000000000000000000000000000000000000000000',
 ].join('&');

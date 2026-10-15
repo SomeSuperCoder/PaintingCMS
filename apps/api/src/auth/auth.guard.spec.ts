@@ -14,7 +14,7 @@ import { Reflector } from '@nestjs/core';
 import { UnauthorizedException, type ExecutionContext } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AUTH_HEADER, ERROR_MESSAGES } from '@painting/shared';
+import { AUTH_HEADER, DEV_USER, ERROR_MESSAGES } from '@painting/shared';
 import type { DrizzleDb } from '../db/drizzle.module';
 import { AuthGuard, type RequestWithAuth } from './auth.guard';
 import { computeSecretKey } from './init-data';
@@ -75,10 +75,14 @@ interface GuardHarness {
   db: { insert: ReturnType<typeof vi.fn> };
 }
 
-function makeGuard(botToken: string): GuardHarness {
+function makeGuard(
+  botToken: string,
+  devMode = false,
+): GuardHarness {
   const get = vi.fn((key: string, def?: unknown): unknown => {
     if (key === 'BOT_TOKEN') return botToken;
     if (key === 'INIT_DATA_MAX_AGE_SECONDS') return 600;
+    if (key === 'DEV_MODE') return devMode;
     return def;
   });
   const config = { get } as unknown as ConfigService;
@@ -218,5 +222,63 @@ describe('AuthGuard', () => {
     expect(request.user).toEqual({ id: BIG_ID, username: null, firstName: 'Биг' });
     const values = db.insert.mock.results[0]!.value.values as ReturnType<typeof vi.fn>;
     expect(values).toHaveBeenCalledWith({ id: BIG_ID, username: null, firstName: 'Биг' });
+  });
+});
+
+/**
+ * DEV_MODE — the identity is a constant, the header is never read, and nothing
+ * is persisted. The no-write half is the load-bearing one: a dev user in the
+ * `users` table could claim the catalog via OwnershipGuard's first-open path and
+ * lock every real user out with no transfer available.
+ */
+describe('AuthGuard in DEV_MODE', () => {
+  const asDevUser = {
+    id: DEV_USER.id,
+    username: DEV_USER.username,
+    firstName: DEV_USER.firstName,
+  };
+
+  it('authenticates WITHOUT the header (it is never required)', async () => {
+    const { guard } = makeGuard(BOT_TOKEN, true);
+    const { context, request } = makeContext(undefined);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.user).toEqual(asDevUser);
+  });
+
+  it('IGNORES the header contents — even forged garbage', async () => {
+    const { guard } = makeGuard(WRONG_TOKEN, true);
+    for (const raw of [forgedWire(), 'not-a-query-string!!!', validWire()]) {
+      const { context, request } = makeContext(raw);
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(request.user).toEqual(asDevUser);
+    }
+  });
+
+  it('NEVER writes the dev user to the users table', async () => {
+    const { guard, db } = makeGuard(BOT_TOKEN, true);
+    const { context } = makeContext(validWire());
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    // No insert → no row → app_state can never point at a dev identity.
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('still lets @Public routes through untouched', async () => {
+    // The guard owns its Reflector, so build one here with the @Public lookup
+    // stubbed — otherwise the guard would take the (non-public) DEV_MODE path.
+    const reflector = new Reflector();
+    vi.spyOn(reflector, 'getAllAndOverride').mockReturnValue(true);
+    const guard = new AuthGuard(
+      { get: (k: string, d?: unknown) => (k === 'DEV_MODE' ? true : d) } as unknown as ConfigService,
+      reflector,
+      { insert: vi.fn() } as unknown as DrizzleDb,
+    );
+    const request = { headers: {} } as RequestWithAuth;
+    const context = {
+      switchToHttp: () => ({ getRequest: () => request }),
+      getHandler: () => ({}),
+      getClass: () => ({}),
+    } as unknown as ExecutionContext;
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.user).toBeUndefined();
   });
 });
