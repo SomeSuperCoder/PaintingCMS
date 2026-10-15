@@ -2,7 +2,7 @@
  * Paintings list page — route «/» (ui-design §2.1).
  * Cards in gallery order (newest first), loading skeletons without shimmer,
  * inline error + retry, friendly empty state with a CTA, and the sticky
- * «+ Добавить картину» bottom bar. Footer links to the locations and owner
+ * «Добавить картину» bottom bar. Footer links to the locations and owner
  * screens (built in the next wave).
  */
 import { useQuery } from '@tanstack/react-query';
@@ -74,7 +74,7 @@ export function PaintingsListPage() {
       <BottomActionBar>
         <Button render={<Link to={ROUTES.paintingNew} />} className="h-13 w-full text-lg font-bold">
           <PlusIcon aria-hidden="true" className="size-5" />
-          {strings.home.add}
+          {strings.home.addWithIcon}
         </Button>
       </BottomActionBar>
     </div>

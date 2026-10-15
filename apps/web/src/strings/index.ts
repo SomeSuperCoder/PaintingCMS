@@ -32,7 +32,12 @@ export const strings = {
   },
   home: {
     title: 'Мои картины',
+    // `add` is for TEXT-ONLY buttons (the form's submit button), so it spells
+    // the plus itself. `addWithIcon` is for the bottom bar, where a
+    // <PlusIcon aria-hidden> already renders one — never both, or the button
+    // shows "++".
     add: '+ Добавить картину',
+    addWithIcon: 'Добавить картину',
     addFirst: '+ Добавить первую картину',
     empty: 'У вас пока нет картин',
     emptyHint: 'Добавьте первую картину — фото, цену и место продажи.',

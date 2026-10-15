@@ -5,7 +5,9 @@
  */
 export const S = {
   homeTitle: 'Мои картины',
-  addButton: '+ Добавить картину',
+  // Bottom bar: the "+" comes from a <PlusIcon aria-hidden>, which contributes
+  // nothing to the accessible name — so the label itself carries no plus.
+  addButton: 'Добавить картину',
   addFirst: '+ Добавить первую картину',
   emptyCatalog: 'У вас пока нет картин',
 
