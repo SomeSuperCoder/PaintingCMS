@@ -37,24 +37,35 @@ RUN pnpm --filter @painting/shared build
 RUN pnpm --filter @painting/api build
 RUN pnpm --filter @painting/web build
 
+# Materialize ONLY the api package with its prod deps — HERE, in the build
+# stage, not in the runtime stage.
+#
+# Why it matters: the obvious alternative is `COPY --from=build /repo /repo` in
+# the runtime stage, deploy, then `rm -rf /repo`. That copies the entire build
+# workspace (every package's DEV dependencies — TypeScript, Vite, esbuild,
+# Playwright — plus the full source tree) into the runtime image, and the
+# `rm -rf` reclaims NOTHING: a delete only adds a whiteout, so those bytes stay
+# in the image's layers forever. It also re-ran on every source change, since it
+# sits downstream of the COPY above.
+#
+# --legacy: pnpm v10 refuses deploy from non-injected workspaces; legacy mode
+# symlinks workspace deps into the deployed tree's own .pnpm store. /app is
+# therefore self-contained and relocatable between stages — safe to COPY below.
+RUN pnpm --filter @painting/api deploy --legacy --prod /app
+
 # ---- Stage 2: runtime (non-root) ----
 FROM docker.io/library/node:22-alpine AS runtime
-WORKDIR /repo
 
 # node:22-alpine already ships the `node` user (uid 1000, gid 1000) — that is
 # the non-root runtime identity. No adduser/addgroup: creating a group with
 # gid 1000 here fails on this image (addgroup: gid '1000' in use).
-RUN npm install -g pnpm@10.33.0
+#
+# pnpm is NOT installed here — the deploy already ran in the build stage, so
+# the runtime only needs node. That also removes a second npm network fetch
+# from every build.
 
-# Materialize ONLY the api package with its prod deps (workspace: deps like
-# @painting/shared are bundled by `pnpm deploy`). Then drop the build tree.
-# --legacy: pnpm v10 refuses deploy from non-injected workspaces; legacy mode
-# symlinks workspace deps into the deployed tree's own .pnpm store (still
-# self-contained — the copy includes shared's freshly built dist), so
-# rm -rf /repo is safe and dev semantics (no inject-workspace-packages) hold.
-COPY --from=build /repo /repo
-RUN pnpm --filter @painting/api deploy --legacy --prod /app \
-    && rm -rf /repo
+# The deployed api package + its prod deps, produced in the build stage above.
+COPY --from=build /app /app
 
 WORKDIR /app
 

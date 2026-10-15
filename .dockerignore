@@ -13,6 +13,19 @@ backups/
 openspec/
 docs/
 
+# Tests are never compiled by either image build: api's tsconfig.build.json
+# excludes **/*spec.ts, and web's tsconfig.json references only tsconfig.app.json
+# (include: src) + tsconfig.node.json — never tsconfig.e2e.json. Excluding them
+# keeps a test-only edit from busting the `COPY apps/...` layer and with it the
+# shared + api + web builds. CI's `pnpm typecheck` / `pnpm test` still cover
+# these files, so nothing is lost.
+apps/web/e2e/
+apps/api/test-integration/
+apps/web/src/test/
+**/*.spec.ts
+**/*.test.ts
+**/*.test.tsx
+
 # Agent/editor trees — not build inputs. `.opencode` alone is ~63 MB and was
 # being shipped to the builder on EVERY build, including no-op deploys.
 .opencode/
