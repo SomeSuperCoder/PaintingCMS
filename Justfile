@@ -51,47 +51,102 @@ backup:
 
 # ── Deploy (run on the server) ──────────────────────────────
 
-# Deploy: pull, rebuild ONLY if the source changed, restart, wait for health.
+# Resolve the running api container ID.
+#
+# NOT `podman-compose ps -q api`: podman-compose's `ps` takes NO positional
+# service (v1.6.0 accepts only -q), so that call dies with "unrecognized
+# arguments: api". Worse, inside the `[ -n "$(...)" ]` skip-check it fails
+# SILENTLY — bash discards a command substitution's exit status inside a test,
+# so the condition is just false and every deploy rebuilt as if nothing had
+# changed. Resolve it through native podman using the label podman-compose
+# stamps on every container it creates.
+#
+# `status=running`, NOT `-a`: podman-compose's ps always passes -a, which would
+# also match a stopped container and wrongly let us skip a rebuild.
+#
+# Scoped by service label only. If a second compose project on this host also
+# had an `api` service it could match the wrong container; adding a project
+# label means hardcoding podman-compose's project-name derivation, which is not
+# worth it for a single-app box.
+api_cid := "podman ps -q --filter label=io.podman.compose.service=api --filter status=running | head -1"
+
+# Everything that determines the image — exactly what the Dockerfile COPYs.
+# The Dockerfile itself lives under apps/api so it is covered here; .dockerignore
+# is listed because it decides which files enter the context at all.
+#
+# podman-compose.yml is deliberately NOT here: it configures env/volumes at `up`
+# time and does not change the image, so editing it must not force a rebuild.
+# Neither are Justfile / README / .github / .env.example / docs — a typo fix in
+# any of them cannot alter the built artifact, and must never cost a rebuild.
+deploy_inputs := "apps/api apps/web packages/shared pnpm-lock.yaml pnpm-workspace.yaml .npmrc .dockerignore"
+
+# Deploy: pull, rebuild ONLY if a build input changed, restart, wait for health.
 #
 # The build is the expensive step (pnpm install + shared/api/web builds +
-# pnpm deploy), so a no-op deploy must not pay for it. `.deploy-stamp` records
-# the commit of the last successful build; we rebuild only when one of these
-# holds:
-#   - force=true was passed (`just deploy force=true` — the escape hatch)
-#   - the stamp is missing or names a different commit than HEAD
-#   - the working tree is dirty (an uncommitted edit, incl. the Dockerfile,
-#     is NOT in HEAD, so it would otherwise be silently skipped)
-#   - no api container is running (image pruned / container removed → we must
-#     not assume the deployed image still exists)
-# Note `podman-compose up -d` still re-applies env_file, so editing .env alone
-# correctly skips the rebuild and still takes effect.
+# pnpm deploy), so the gate is on WHAT THE IMAGE DEPENDS ON, not on the commit.
+# A commit that touches only Justfile/README/CI leaves every byte the Dockerfile
+# reads identical, so it must reuse the existing image.
 #
-# Deploy: pull, rebuild ONLY if the source changed, restart, wait for health.
+# Rebuild when ANY of these hold:
+#   - force=true was passed (`just deploy force=true` — the escape hatch)
+#   - .deploy-stamp is missing, or does not name a resolvable commit
+#   - something under deploy_inputs has uncommitted changes (including new
+#     untracked files — COPY picks those up, so they DO change the image)
+#   - something under deploy_inputs differs between the stamp commit and HEAD
+#   - no api container is running (image pruned / container removed → we cannot
+#     assume the deployed image still exists)
+#
+# Every failure path here leads to a BUILD, never to a skip: an unresolvable
+# stamp or a failed `git diff` must not be able to silently deploy stale code.
+# Over-eager is the safe direction (e.g. editing a test file under apps/web
+# still rebuilds) — so the filter is deliberately NOT a copy of .dockerignore;
+# duplicating those rules in two places is how they silently rot.
+#
+# `.deploy-stamp` is written ONLY after the health check passes, so it means
+# "deployed AND verified". A build that produces a broken image therefore gets
+# retried on the next deploy instead of being remembered as good.
+#
+# Deploy: pull, rebuild only if a build input changed, restart, wait for health.
 deploy force="false":
     @test -f .env || { echo "Missing .env — run: cp .env.example .env and fill PUBLIC_URL, POSTGRES_PASSWORD, BOT_TOKEN"; exit 1; }
     @test -n "${PUBLIC_URL:-}" || { echo "PUBLIC_URL is empty in .env"; exit 1; }
     @test -n "${POSTGRES_PASSWORD:-}" || { echo "POSTGRES_PASSWORD is empty in .env"; exit 1; }
     @test -n "${BOT_TOKEN:-}" || { echo "BOT_TOKEN is empty in .env"; exit 1; }
     git pull --ff-only
-    @head=$(git rev-parse HEAD); stamp=.deploy-stamp; \
+    @stamp=.deploy-stamp; build=1; \
      if [ "{{force}}" = "true" ]; then \
        echo "force=true — rebuilding the api image."; \
-       podman-compose up -d --build; \
-       printf '%s' "$head" > "$stamp"; \
-     elif [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$head" ] && [ -z "$(git status --porcelain)" ] && [ -n "$(podman-compose ps -q api)" ]; then \
-       echo "Already deployed $head (working tree clean) — reusing the image, skipping build."; \
-       podman-compose up -d; \
-     else \
+     elif [ -f "$stamp" ] && sha=$(cat "$stamp" 2>/dev/null) && git cat-file -e "${sha}^{commit}" 2>/dev/null; then \
+       uncommitted=$(git status --porcelain -- {{deploy_inputs}}); \
+       committed=$(git diff --name-only "$sha..HEAD" -- {{deploy_inputs}}) || committed="<diff-failed>"; \
+       if [ -z "$uncommitted" ] && [ -z "$committed" ] && [ -n "$({{api_cid}})" ]; then build=0; fi; \
+     fi; \
+     if [ "$build" = "1" ]; then \
        echo "Building the api image ..."; \
        podman-compose up -d --build; \
-       printf '%s' "$head" > "$stamp"; \
+     else \
+       echo "No build inputs changed since the last verified deploy — reusing the image."; \
+       podman-compose up -d; \
      fi
     @echo "Waiting for api to become healthy ..."
-    @cid=$(podman-compose ps -q api); \
+    @saw_container=0; \
      for i in $(seq 1 40); do \
-       podman healthcheck run "$cid" >/dev/null 2>&1 && { echo "api is healthy."; exit 0; }; \
+       cid=$({{api_cid}}); \
+       if [ -n "$cid" ]; then \
+         saw_container=1; \
+         podman healthcheck run "$cid" >/dev/null 2>&1 && { \
+           echo "api is healthy."; \
+           git rev-parse HEAD > .deploy-stamp; \
+           echo "Recorded .deploy-stamp (verified deploy)."; \
+           exit 0; }; \
+       fi; \
        sleep 3; \
      done; \
+     if [ "$saw_container" = "0" ]; then \
+       echo "No RUNNING api container was ever found (label io.podman.compose.service=api)."; \
+       echo "Check that 'podman-compose up -d' actually created it:"; \
+       echo "  podman ps -a --filter label=io.podman.compose.project"; \
+     fi; \
      echo "api did not become healthy in time. Last logs:"; \
      podman-compose logs --tail=80 api; \
      echo; \
